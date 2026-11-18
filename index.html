@@ -47,7 +47,7 @@ input[type=text]{width:100%;box-sizing:border-box;padding:12px;border-radius:12p
 #cl{max-height:84px;overflow:auto;font-size:13px;line-height:1.5}
 .ch{display:flex;gap:6px;margin-top:6px}.ch button{flex:0 0 auto;width:auto;margin:0;padding:8px 12px;font-size:15px}
 h3{margin:6px 0;font-size:14px;color:#cfe8f7}
-</style></head><body>
+#log{display:none}.fly{position:fixed;width:46px;height:69px;transform:translate(-50%,-50%) scale(1.15);transition:left .7s ease,top .7s ease,transform .7s;z-index:40;pointer-events:none;border-radius:7px;overflow:hidden;box-shadow:0 6px 16px rgba(0,0,0,.5)}.fly img{width:100%;height:100%;object-fit:cover;display:block}</style></head><body>
 <main>
 <section class="scr on" id="menu">
 <img class="logo" id="logo" alt="Go Fish">
@@ -89,12 +89,14 @@ function show(id){document.querySelectorAll(".scr").forEach(s=>s.classList.toggl
 let R=null,host=0,S=null,DK=[],sel=-1,lastFx=0,code="",hb=0;
 const tx=(t,d)=>{if(R)R.emit(t,d).catch(()=>{})};
 const blank=(id,name,bot)=>({id,name,bot:!!bot,h:[],b:[],skip:0,fish2:0,redo:0});
+const ICE=[{urls:"stun:stun.l.google.com:19302"},{urls:"turn:openrelay.metered.ca:80",username:"openrelayproject",credential:"openrelayproject"},{urls:"turn:openrelay.metered.ca:443?transport=tcp",username:"openrelayproject",credential:"openrelayproject"}];
 const pcs={};let VS=null;
+const flush=async pc=>{const q=pc.q;pc.q=[];for(const c of q)try{await pc.addIceCandidate(c)}catch(e){}};
 function mkpc(id,off){
   if(pcs[id])pcs[id].close();
-  const pc=new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});pcs[id]=pc;pc.q=[];
+  const pc=new RTCPeerConnection({iceServers:ICE});pcs[id]=pc;pc.q=[];
   pc.onicecandidate=e=>{if(e.candidate)tx("rtc",{to:id,from:me.id,c:e.candidate})};
-  pc.ontrack=e=>{let a=document.getElementById("a"+id);if(!a){a=document.createElement("audio");a.id="a"+id;a.autoplay=true;document.body.appendChild(a)}a.srcObject=e.streams[0]};
+  pc.ontrack=e=>{let a=document.getElementById("a"+id);if(!a){a=document.createElement("audio");a.id="a"+id;a.autoplay=true;a.playsInline=true;document.body.appendChild(a)}a.srcObject=e.streams[0];a.play().catch(()=>{})};
   if(off){if(VS)VS.getTracks().forEach(t=>pc.addTrack(t,VS));else pc.addTransceiver("audio",{direction:"sendrecv"})}
   return pc;
 }
@@ -102,10 +104,21 @@ async function rtc(d){
   if(!d||d.from==me.id||(d.to&&d.to!=me.id))return;
   try{
     if(d.k=="join"){const pc=mkpc(d.from,1);await pc.setLocalDescription(await pc.createOffer());tx("rtc",{to:d.from,from:me.id,s:pc.localDescription})}
-    else if(d.s&&d.s.type=="offer"){const pc=mkpc(d.from,0);await pc.setRemoteDescription(d.s);if(VS)VS.getTracks().forEach(t=>pc.addTrack(t,VS));await pc.setLocalDescription(await pc.createAnswer());tx("rtc",{to:d.from,from:me.id,s:pc.localDescription})}
-    else if(d.s){const pc=pcs[d.from];await pc.setRemoteDescription(d.s);for(const c of pc.q)await pc.addIceCandidate(c);pc.q=[]}
+    else if(d.s&&d.s.type=="offer"){const o=pcs[d.from];if(o&&o.signalingState=="have-local-offer"&&me.id>d.from)return;const pc=mkpc(d.from,0);await pc.setRemoteDescription(d.s);await flush(pc);if(VS)VS.getTracks().forEach(t=>pc.addTrack(t,VS));await pc.setLocalDescription(await pc.createAnswer());tx("rtc",{to:d.from,from:me.id,s:pc.localDescription})}
+    else if(d.s){const pc=pcs[d.from];if(pc&&pc.signalingState=="have-local-offer"){await pc.setRemoteDescription(d.s);await flush(pc)}}
     else if(d.c&&pcs[d.from]){const pc=pcs[d.from];if(pc.remoteDescription)await pc.addIceCandidate(d.c);else pc.q.push(d.c)}
   }catch(e){}
+}
+document.addEventListener("click",()=>document.querySelectorAll("audio").forEach(a=>a.play().catch(()=>{})));
+function fly(f,t,c,k,mi,delay){
+  const pos=i=>{const e=i<0?$("bk"):(i==mi?$("hand"):document.querySelector('[data-j="'+i+'"]'));if(!e)return null;const r=e.getBoundingClientRect();return[r.left+r.width/2,r.top+r.height/2]};
+  const a=pos(f),b=pos(t);if(!a||!b)return;
+  const face=c>=0&&(f>=0||t==mi);
+  for(let n=0;n<k;n++)setTimeout(()=>{
+    const d=document.createElement("div");d.className="fly";d.innerHTML=img(face?c:BK);d.style.left=a[0]+"px";d.style.top=a[1]+"px";document.body.appendChild(d);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{d.style.left=b[0]+"px";d.style.top=b[1]+"px";d.style.transform="translate(-50%,-50%) scale(.9)"}));
+    setTimeout(()=>d.remove(),1000);
+  },delay+n*150);
 }
 function vclose(){if(VS)VS.getTracks().forEach(t=>t.stop());VS=null;Object.values(pcs).forEach(p=>p.close());for(const k in pcs)delete pcs[k];document.querySelectorAll("audio").forEach(a=>a.remove());$("mic").textContent="🎤"}
 async function conn(c){
@@ -124,16 +137,16 @@ async function conn(c){
 $("mic").onclick=async()=>{
   if(!R)return toast("الصوت بس بالغرف الأونلاين");
   if(VS){VS.getTracks().forEach(t=>t.stop());VS=null;$("mic").textContent="🎤";return tx("rtc",{k:"join",from:me.id})}
-  try{VS=await navigator.mediaDevices.getUserMedia({audio:true});$("mic").textContent="🔴";tx("rtc",{k:"join",from:me.id})}catch(e){toast("ما قدرت أفتح المايك")}
+  if(!navigator.mediaDevices)return toast("المايك بدو رابط https");try{VS=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});$("mic").textContent="🔴";tx("rtc",{k:"join",from:me.id})}catch(e){toast("ما قدرت أفتح المايك ("+(e.name||"")+") — اسمح للمتصفح")}
 };
-function newS(){return{ph:"lobby",pl:[blank(me.id,cfg.name)],deck:0,cur:0,lg:[],pend:null,fx:{n:0}}}
+function newS(){return{ph:"lobby",pl:[blank(me.id,cfg.name)],deck:0,cur:0,lg:[],pend:null,fx:{n:0},fl:[]}}
 $("mk").onclick=async()=>{const c=Math.random().toString(36).slice(2,6).toUpperCase();if(!await conn(c))return;host=1;S=newS();show("lobby");gotState()};
 $("jn").onclick=()=>show("joinS");
 $("jg").onclick=async()=>{const c=$("jc").value.trim().toUpperCase();if(c.length!=4)return toast("الكود 4 أحرف");host=0;S=null;if(!await conn(c))return;show("lobby");$("rc").textContent=c;$("lp").textContent="عم ندوّر على الغرفة...";let n=0;const iv=setInterval(()=>{if(S||++n>5){clearInterval(iv);if(!S){$("lp").textContent="ما لقيت الغرفة. تأكد من الكود."}}else tx("hi",{id:me.id,name:cfg.name})},1500);tx("hi",{id:me.id,name:cfg.name})};
 $("lc").onclick=()=>{R=null;host=1;S=newS();for(let i=1;i<=3;i++)S.pl.push(blank("b"+i,"بوت "+i,1));startGame()};
 $("ab").onclick=()=>{if(S.pl.length<15){S.pl.push(blank("b"+Math.random().toString(36).slice(2,5),"بوت "+(S.pl.filter(p=>p.bot).length+1),1));bc()}};
 $("go").onclick=()=>{if(S.pl.length<2)return toast("لازم لاعبين على الأقل");startGame()};
-function bc(){S.deck=DK.length;tx("st",S);gotState()}
+function bc(){S.deck=DK.length;tx("st",S);gotState();S.fl=[]}
 const fx=(k,c)=>{S.fx={n:S.fx.n+1,k,c}},lg=t=>{S.lg.push(t);if(S.lg.length>4)S.lg.shift()};
 function startGame(){
   const P=S.pl,n=P.length;DK=[];
@@ -167,10 +180,10 @@ function ask(w,t,r){
 function tri(w,t,r){const b=S.pl[t];b.h.splice(b.h.indexOf(NR+2),1);S.pend=null;lg(b.name+" صدّ "+S.pl[w].name+" بالرمح 🔱 ("+NAMES[r]+")");fx("burn",NR+2);next(t,1)}
 function go(w,t,r){
   const a=S.pl[w],b=S.pl[t],n=b.h.filter(x=>x==r).length;
-  if(n){b.h=b.h.filter(x=>x!=r);for(let i=0;i<n;i++)a.h.push(r);lg(a.name+" أخد "+n+" × "+NAMES[r]+" من "+b.name);fx("take");books(w);return next(w,1)}
+  if(n){b.h=b.h.filter(x=>x!=r);for(let i=0;i<n;i++)a.h.push(r);lg(a.name+" أخد "+n+" × "+NAMES[r]+" من "+b.name);fx("take");S.fl.push({f:t,t:w,c:r,k:n});books(w);return next(w,1)}
   lg(a.name+" سأل "+b.name+" عن "+NAMES[r]+": Go Fish! 🎣");fx("fish");
   let lucky=0;const k=a.fish2?2:1;a.fish2=0;
-  for(let i=0;i<k&&DK.length;i++){const d=DK.pop();a.h.push(d);if(d==r)lucky=1}
+  for(let i=0;i<k&&DK.length;i++){const d=DK.pop();a.h.push(d);S.fl.push({f:-1,t:w,c:d,k:1});if(d==r)lucky=1}
   books(w);if(a.redo){a.redo=0;lg(a.name+" بيعيد السؤال 💰");lucky=1}
   next(w,lucky);
 }
@@ -179,7 +192,7 @@ function special(w,id,t){
   if(s==0){S.pl[t].skip=1;lg(p.name+" منع "+S.pl[t].name+" من دوره 👢")}
   if(s==1){p.fish2=1;lg(p.name+" لعب المحار: بيسحب بطاقتين 🦪")}
   if(s==3){p.redo=1;lg(p.name+" لعب الصندوق: بيعيد السؤال 💰")}
-  if(s==4){let c=0;S.pl.forEach((q,i)=>{if(i!=w){const n=q.h.filter(x=>x==t).length;if(n){q.h=q.h.filter(x=>x!=t);for(let k=0;k<n;k++)p.h.push(t);c+=n}}});books(w);lg(p.name+" لعب الكراكن على "+NAMES[t]+" وأخد "+c+" 🐙")}
+  if(s==4){let c=0;S.pl.forEach((q,i)=>{if(i!=w){const n=q.h.filter(x=>x==t).length;if(n){q.h=q.h.filter(x=>x!=t);for(let k=0;k<n;k++)p.h.push(t);c+=n;S.fl.push({f:i,t:w,c:t,k:n})}}});books(w);lg(p.name+" لعب الكراكن على "+NAMES[t]+" وأخد "+c+" 🐙")}
   fx("burn",id);bc();
 }
 function bot(){
@@ -204,7 +217,7 @@ function hostAct(d){
 const send=d=>{d.id=me.id;host?hostAct(d):tx("act",d)};
 function gotState(){
   if(S.ph=="lobby"){show("lobby");$("rc").textContent=code||"—";rLobby()}else{show("game");rGame()}
-  if(S.fx&&S.fx.n>lastFx){lastFx=S.fx.n;snd(S.fx.k);if(S.fx.k=="burn")$("fx").innerHTML='<div class="bn">'+img(S.fx.c)+"<i>🔥</i></div>"}
+  if(S.fx&&S.fx.n>lastFx){lastFx=S.fx.n;{const mi=S.pl.findIndex(p=>p.id==me.id);(S.fl||[]).forEach((x,i)=>fly(x.f,x.t,x.c,x.k||1,mi,i*450))}snd(S.fx.k);if(S.fx.k=="burn")$("fx").innerHTML='<div class="bn">'+img(S.fx.c)+"<i>🔥</i></div>"}
 }
 function rLobby(){
   $("lp").innerHTML="<h3>اللاعبين ("+S.pl.length+"/15)</h3>"+S.pl.map(p=>"<div>"+(p.bot?"🤖 ":"👤 ")+esc(p.name)+"</div>").join("");
@@ -218,7 +231,7 @@ function rGame(){
   const n={};mp.h.forEach(r=>n[r]=(n[r]||0)+1);
   $("hand").innerHTML=Object.keys(n).map(Number).sort((a,b)=>a-b).map(r=>'<button class="card'+(r>=NR?" sp":"")+(sel==r?" sel":"")+(my?"":" off")+'" data-r="'+r+'">'+img(r)+(n[r]>1?"<small>×"+n[r]+"</small>":"")+"</button>").join("");
   $("pb").innerHTML=mp.b.map(r=>'<div class="card mini">'+img(r)+"</div>").join("");
-  $("turn").textContent=S.ph=="end"?"":my?(sel==NR+4?"اختار فئة من إيدك":sel==NR?"اختار لاعب":"دورك"):"دور "+P[S.cur].name+"…";
+  $("turn").textContent=S.ph=="end"?S.lg[S.lg.length-1]:my?(sel==NR+4?"اختار فئة من إيدك":sel==NR?"اختار لاعب":"دورك"):"دور "+P[S.cur].name+"…";
   $("log").innerHTML=S.lg.map(t=>"<div>"+esc(t)+"</div>").join("");
   const pd=S.pend&&P[S.pend.t];
   if(pd&&pd.id==me.id){$("aq").innerHTML=esc(P[S.pend.a].name)+" بيسألك عن <b>"+NAMES[S.pend.r]+"</b>. تستخدم الرمح 🔱 وتصده؟<button class='btn pri' data-u='1'>أيوا، صدّه</button><button class='btn' data-u='0'>لا، اعطيه</button>";$("ask").classList.add("on")}else $("ask").classList.remove("on");
